@@ -1,8 +1,6 @@
 # Assignment 1: Reconstruct image from sinogram
 # Python 3.7
 
-# TODO implement hamming / hann windowing
-
 import scipy.fftpack as fft
 import numpy as np
 import matplotlib.pyplot as plt
@@ -14,99 +12,138 @@ from itertools import repeat
 IMG_FILE = "./sinogram.png"     # image file to open
 ASPECT_RATIO = 4/3              # aspect ratio of image (width:height)
 USE_MULTI_THREADING = True      # Whether to use multi-threading to process channels simultaneously
+SAVE_INTERMEDIATE = True        # Whether to save intermediate images during processing (helpful for writing report)
 
 
-def apply_fft_to_projections(projections):
+def apply_fft(sinogram):
     """
     Apply a fast fourier transform to each projection
-    :param projections: np.array of projections
+    :param sinogram: np.array of projections
     :return: np.array of fft(projection)
     """
-    return fft.rfft(projections, axis=1)
+    return fft.rfft(sinogram, axis=1)
 
 
-def apply_ramp_filter(projection_ffts):
+def apply_ramp_filter(sinogram_fft):
     """
     Apply a ramp filter to each row in an array
         rows should be in frequency domain to allow for multiplication instead of convolution
-    :param projection_ffts: np.array of fft of projections
+    :param sinogram_fft: np.array of fft of projections
     :return: np.array of ramp_filter * projections
     """
-    ramp = np.floor(np.arange(0.5, projection_ffts.shape[1] // 2 + 0.1, 0.5))
-    return projection_ffts * ramp
+    ramp = np.floor(np.arange(0.5, sinogram_fft.shape[1] // 2 + 0.1, 0.5))
+    return sinogram_fft * ramp
 
 
-def apply_inverse_fft_to_projections(projection_ffts):
+def apply_hamming_windowed_ramp_filter(sinogram_fft):
+    """
+    Apply a Hamming windowed ramp filter to the projection_ffts
+    :param sinogram_fft: np.array of projections
+    :return: np.array of windowed projections
+    """
+    ramp = np.floor(np.arange(0.5, sinogram_fft.shape[1] // 2 + 0.1, 0.5))
+    windowed_ramp = ramp * np.hamming(sinogram_fft.shape[1])
+    return sinogram_fft * windowed_ramp
+
+
+def apply_hann_windowed_ramp_filter(sinogram_fft):
+    """
+    Apply a Hann windowed ramp filter to the projection_ffts
+    :param sinogram_fft: np.array of projections
+    :return: np.array of windowed projections
+    """
+    ramp = np.floor(np.arange(0.5, sinogram_fft.shape[1] // 2 + 0.1, 0.5))
+    windowed_ramp = ramp * np.hanning(sinogram_fft.shape[1])
+    return sinogram_fft * windowed_ramp
+
+
+def apply_inverse_fft(sinogram_fft):
     """
     Apply the inverse fft to rows in an array
-    :param projection_ffts: np.array of fft of projections
+    :param sinogram_fft: np.array of fft of projections
     :return: np.array of projections
     """
-    return fft.irfft(projection_ffts, axis=1)
+    return fft.irfft(sinogram_fft, axis=1)
 
 
-def form_img_from_projections(projections, rescale=True):
+def form_img_from_sinogram(sinogram):
     """
     Form an image from a number of projections at different angles (sinogram), i.e. perform reverse radon transform
         only a single channel should be passed at a time
-    :param projections: np.array of projections
+    :param sinogram: np.array of projections
     :return: image
     """
-    num_angles, num_sensors = projections.shape
+    num_angles, num_sensors = sinogram.shape
     image = np.zeros((num_sensors, num_sensors))
     delta_theta = 180 / num_angles
-    back_projections = np.broadcast_to(projections, (num_sensors, *projections.shape))
+    back_projections = np.broadcast_to(sinogram, (num_sensors, *sinogram.shape))
     for i in range(num_angles):
         image += transforms.rotate(back_projections[:, i, :], delta_theta*i)
     return image
 
 
-def apply_functions(projections, functions):
+def crop(channel):
+    """
+    Crop an image channel to the global aspect ratio
+        Assumes image was made from a sinogram
+    :param channel: single channel from the image
+    :return: cropped image channel
+    """
+    r, c = channel.shape  # Current rows and columns of channel images
+    final_height = int(r / np.sqrt(1 + ASPECT_RATIO ** 2))  # Width of original image
+    final_width = int(final_height * ASPECT_RATIO)  # Height of original image
+    start_r = (r // 2) - (final_height // 2)  # where to start cropping rows
+    start_c = (c // 2) - (final_width // 2)   # where to start cropping columns
+    return channel[start_r:start_r + final_height, start_c:start_c + final_width]
+
+
+def rescale(channel):
+    """
+    Rescale image channel pixel values back to range 0...255
+    :param channel: image channel to rescale
+    :return: rescaled image channel
+    """
+    clo, chi = channel.min(), channel.max()
+    return np.round(255 * (channel - clo) / (chi - clo)).astype('uint8')
+
+
+def apply_functions(sinogram, functions, save_intermediate=False):
     """
     Create a pipeline of functions to apply to an array of projections
-    :param projections: np.array of projections (sinogram)
+    :param sinogram: np.array of projections
     :param functions: ordered list of functions to apply,
                         result of previous function will be fed into the next function
-    :return: final result of pipeline
+    :param save_intermediate: save the intermediate values
+    :return: final result of pipeline, or list of intermediate values (including final value)
     """
+    intermediate = [sinogram] if save_intermediate else None
     for func in functions:
-        projections = func(projections)
-    return projections
+        sinogram = func(sinogram)
+        if save_intermediate:
+            intermediate.append(sinogram)
+    return intermediate if save_intermediate else sinogram
 
 
 if __name__ == "__main__":
-    sinogram = skimage.io.imread(IMG_FILE)   # Load image
-    pool = ThreadPool(sinogram.shape[-1])    # Create a separate thread for each image channel
-    funcs_to_do = [                     # List of functions to preform on each channel (in order)
-        apply_fft_to_projections,
+    rgb_sinogram = skimage.io.imread(IMG_FILE)      # Load image
+    pool = ThreadPool(rgb_sinogram.shape[-1])       # Create a separate thread for each image channel
+    funcs_to_do = [                                 # List of functions to preform on each channel (in order)
+        apply_fft,
         apply_ramp_filter,
-        apply_inverse_fft_to_projections,
-        form_img_from_projections,
+        apply_inverse_fft,
+        form_img_from_sinogram,
+        crop,
+        rescale,
     ]
+
     # Process projections
-    channels = [sinogram[:, :, i] for i in range(sinogram.shape[-1])]
+    channels = [rgb_sinogram[:, :, i] for i in range(rgb_sinogram.shape[-1])]
     if USE_MULTI_THREADING:
-        channel_images = pool.starmap(apply_functions, zip(channels, repeat(funcs_to_do)))
+        channel_images = pool.starmap(apply_functions, zip(channels, repeat(funcs_to_do), repeat(SAVE_INTERMEDIATE)))
     else:
         channel_images = [apply_functions(c, funcs_to_do) for c in channels]
 
-    # Calculate points to crop image ( Desired image must be within a circle with same width as sinogram )
-    r = sinogram.shape[1]                   # Radius of image circle
-    alpha = np.arctan(1/ASPECT_RATIO)       # Find angle to corner that gives rectangle of aspect ratio
-    final_width, final_height = np.floor([r * np.cos(alpha), r * np.sin(alpha)]).astype('int32')  # Wanted width and height
-    r, c = channel_images[0].shape                   # current rows and columns of channel images
-    start_r = int((r // 2) - (final_height // 2))       # where to start cropping rows
-    start_c = int((c // 2) - (final_width // 2))        # where to start cropping columns
-
-    for i in range(len(channel_images)):
-        channel_images[i] = channel_images[i][start_r:start_r+final_height, start_c:start_c+final_width]
-        # Rescale pixel values
-        clo, chi = channel_images[i].min(), channel_images[i].max()
-        channel_images[i] = 255 * (channel_images[i] - clo) / (chi - clo)
-        channel_images[i] = np.floor(channel_images[i]).astype('uint8')
-
-    # Combine channels to make final image
-    final_image = np.dstack(channel_images)
-    plt.imshow(final_image)
-    # Crop image
-    plt.show()
+    for result in zip(*channel_images if SAVE_INTERMEDIATE else channel_images):
+        plt.figure()
+        plt.imshow(np.dstack(result))
+        plt.show()
