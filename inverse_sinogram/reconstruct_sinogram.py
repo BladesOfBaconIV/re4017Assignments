@@ -35,18 +35,16 @@ def apply_ramp_filter(sinogram_fft):
     return sinogram_fft * ramp
 
 
-def apply_hamming_windowed_ramp_filter(sinogram_fft):
+def apply_hamming_window(channel):
     """
     Apply a Hamming windowed ramp filter to the projection_ffts
-    :param sinogram_fft: np.array of projections
+    :param channel: np.array of projections
     :return: np.array of windowed projections
     """
-    ramp = np.floor(np.arange(0.5, sinogram_fft.shape[1] // 2 + 0.1, 0.5))
-    windowed_ramp = ramp * np.hamming(sinogram_fft.shape[1])
-    return sinogram_fft * windowed_ramp
+    return channel * np.hamming(channel.shape[1])
 
 
-def apply_hann_windowed_ramp_filter(sinogram_fft):
+def apply_hann_window(sinogram_fft):
     """
     Apply a Hann windowed ramp filter to the projection_ffts
     :param sinogram_fft: np.array of projections
@@ -104,7 +102,7 @@ def rescale(channel):
     :return: rescaled image channel
     """
     clo, chi = channel.min(), channel.max()
-    return np.round(255 * (channel - clo) / (chi - clo)).astype('uint8')
+    return np.floor(255 * (channel - clo) / (chi - clo)).astype('uint8')
 
 
 def apply_functions(sinogram, functions, save_intermediate=False):
@@ -127,13 +125,14 @@ def apply_functions(sinogram, functions, save_intermediate=False):
 if __name__ == "__main__":
     rgb_sinogram = skimage.io.imread(IMG_FILE)      # Load image
     pool = ThreadPool(rgb_sinogram.shape[-1])       # Create a separate thread for each image channel
-    funcs_to_do = [                                 # List of functions to preform on each channel (in order)
+    funcs_to_do = [                                # List of functions to preform on each channel (in order)
+        apply_hamming_window,
         apply_fft,
         apply_ramp_filter,
         apply_inverse_fft,
         form_img_from_sinogram,
-        crop,
         rescale,
+        crop,
     ]
 
     # Process projections
@@ -143,6 +142,7 @@ if __name__ == "__main__":
     else:
         channel_images = [apply_functions(c, funcs_to_do) for c in channels]
 
+    # Display images ( Note intermediate images will not be rescaled)
     for result in zip(*channel_images if SAVE_INTERMEDIATE else channel_images):
         plt.figure()
         plt.imshow(np.dstack(result))

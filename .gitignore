@@ -1,1 +1,18 @@
 inverse_sinogram/.idea/*
+
+## Core latex/pdflatex auxiliary files:
+*.tex
+*.aux
+*.lof
+*.log
+*.lot
+*.fls
+*.out
+*.toc
+*.fmt
+*.fot
+*.cb
+*.cb2
+.*.lb
+
+*.png
