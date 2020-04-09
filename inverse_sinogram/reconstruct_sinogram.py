@@ -50,7 +50,7 @@ def apply_hann_window(channel):
     :param channel: np.array of projections
     :return: np.array of windowed projections
     """
-    return channel * np.hamming(channel.shape[1])
+    return channel * np.hanning(channel.shape[1])
 
 
 def apply_inverse_fft(sinogram_fft):
