@@ -5,14 +5,14 @@ import scipy.fftpack as fft
 import numpy as np
 import matplotlib.pyplot as plt
 import skimage.transform as transforms
-import skimage
+from skimage.io import imread
 from multiprocessing import Pool as ThreadPool
 from itertools import repeat
 
 IMG_FILE = "./sinogram.png"     # image file to open
 ASPECT_RATIO = 4/3              # aspect ratio of image (width:height)
 USE_MULTI_THREADING = True      # Whether to use multi-threading to process channels simultaneously
-SAVE_INTERMEDIATE = True        # Whether to save intermediate images during processing (helpful for writing report)
+SAVE_INTERMEDIATE = False       # Whether to save intermediate images during processing (helpful for writing report)
 
 
 def apply_fft(sinogram):
@@ -37,22 +37,20 @@ def apply_ramp_filter(sinogram_fft):
 
 def apply_hamming_window(channel):
     """
-    Apply a Hamming windowed ramp filter to the projection_ffts
+    Apply a Hamming windowed ramp filter to the projections
     :param channel: np.array of projections
     :return: np.array of windowed projections
     """
     return channel * np.hamming(channel.shape[1])
 
 
-def apply_hann_window(sinogram_fft):
+def apply_hann_window(channel):
     """
-    Apply a Hann windowed ramp filter to the projection_ffts
-    :param sinogram_fft: np.array of projections
+    Apply a Hann windowed ramp filter to the projections
+    :param channel: np.array of projections
     :return: np.array of windowed projections
     """
-    ramp = np.floor(np.arange(0.5, sinogram_fft.shape[1] // 2 + 0.1, 0.5))
-    windowed_ramp = ramp * np.hanning(sinogram_fft.shape[1])
-    return sinogram_fft * windowed_ramp
+    return channel * np.hamming(channel.shape[1])
 
 
 def apply_inverse_fft(sinogram_fft):
@@ -75,6 +73,7 @@ def form_img_from_sinogram(sinogram):
     image = np.zeros((num_sensors, num_sensors))
     delta_theta = 180 / num_angles
     back_projections = np.broadcast_to(sinogram, (num_sensors, *sinogram.shape))
+    back_projections.flags['WRITEABLE'] = True  # TODO better way to get back_projections
     for i in range(num_angles):
         image += transforms.rotate(back_projections[:, i, :], delta_theta*i)
     return image
@@ -123,9 +122,9 @@ def apply_functions(sinogram, functions, save_intermediate=False):
 
 
 if __name__ == "__main__":
-    rgb_sinogram = skimage.io.imread(IMG_FILE)      # Load image
+    rgb_sinogram = imread(IMG_FILE)      # Load image
     pool = ThreadPool(rgb_sinogram.shape[-1])       # Create a separate thread for each image channel
-    funcs_to_do = [                                # List of functions to preform on each channel (in order)
+    funcs_to_do = [                                 # List of functions to preform on each channel (in order)
         apply_hamming_window,
         apply_fft,
         apply_ramp_filter,
@@ -142,8 +141,12 @@ if __name__ == "__main__":
     else:
         channel_images = [apply_functions(c, funcs_to_do) for c in channels]
 
-    # Display images ( Note intermediate images will not be rescaled)
-    for result in zip(*channel_images if SAVE_INTERMEDIATE else channel_images):
-        plt.figure()
-        plt.imshow(np.dstack(result))
+    # Display images ( Note intermediate images will not be rescaled )
+    if SAVE_INTERMEDIATE:
+        for result in zip(*channel_images):
+            plt.figure()
+            plt.imshow(np.dstack(result))
+            plt.show()
+    else:
+        plt.imshow(np.dstack(channel_images))
         plt.show()
