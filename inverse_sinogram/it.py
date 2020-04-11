@@ -34,7 +34,7 @@ def apply_ramp_filter(sinogram_fft):
     :return: np.array of ramp_filter * projections
     """
     ramp = np.floor(np.arange(0.5, sinogram_fft.shape[1] // 2 + 0.1, 0.5))
-    hamming = 0.5 + (1-0.5)*np.cos(np.pi*ramp/ramp[-1])
+    hamming = 0.54 + (1-0.54)*np.cos(np.pi*ramp/ramp[-1])
 
     return sinogram_fft * ramp * hamming
 
@@ -192,16 +192,37 @@ if __name__ == "__main__":
             plt.figure(Number)
             plt.imshow(np.dstack(result))
             Number = Number + 1
-        plt.show()
     else:
         plt.imshow(np.dstack(channel_images))
-        plt.show()
     for i in range(channel_images[0][6].shape[0]):
             for j in range(channel_images[0][6].shape[1]):
                 h,s,v = rgb2hsv(channel_images[0][6][i][j],channel_images[1][6][i][j],channel_images[2][6][i][j])
-                s = 1.33*s
-                v = 0.9*v
-                channel_images[0][6][i][j],channel_images[1][6][i][j],channel_images[2][6][i][j] = hsv2rgb(h,s,v)
+                s = 1.35*s
+                v = 0.85*v
+                Rx,Gx,Bx = hsv2rgb(h,s,v)
+                #if (i==226) and (j==625):
+                #    print(Gx)
+                #    print(int(channel_images[1][6][i][j]))
+                #    print(abs(Gx - int(channel_images[1][6][i][j])))
+                #    print(abs(Gx - int(channel_images[1][6][i][j])) < 170)
+                if Rx<0:
+                    if abs((256+Rx) - int(channel_images[0][6][i][j])) < 200:
+                        channel_images[0][6][i][j] = Rx
+                else:
+                    if abs(Rx - int(channel_images[0][6][i][j])) < 200:
+                        channel_images[0][6][i][j] = Rx
+                if Gx<0:
+                    if abs((256+Gx) - int(channel_images[1][6][i][j])) < 200:
+                        channel_images[1][6][i][j] = Gx
+                else:
+                    if abs(Gx - int(channel_images[1][6][i][j])) < 200:
+                        channel_images[1][6][i][j] = Gx
+                if Bx<0:
+                    if abs((256+Bx) - int(channel_images[2][6][i][j])) < 200:
+                        channel_images[2][6][i][j] = Bx
+                else:
+                    if abs(Bx - int(channel_images[2][6][i][j])) < 200:
+                        channel_images[2][6][i][j] = Bx
 
     R = channel_images[0][6]
     G = channel_images[1][6]
