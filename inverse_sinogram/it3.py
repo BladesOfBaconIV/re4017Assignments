@@ -190,7 +190,7 @@ if __name__ == "__main__":
             Number = Number + 1
     else:
         plt.imshow(np.dstack(channel_images))
-    k = 1.5
+    k = 1.5  # contrast value.
     row = channel_images[0][6].shape[0]
     column = channel_images[0][6].shape[1]
     for i in range(row):
