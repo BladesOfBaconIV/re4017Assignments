@@ -4,7 +4,8 @@ from scipy.ndimage.filters import gaussian_filter
 from PIL import Image
 from os.path import exists
 
-IMAGES = ['./images/al1.png', './images/al2.png']
+IMAGE_NAME = "balloon"
+IMAGES = [f'./images/{IMAGE_NAME}1.png', f'./images/{IMAGE_NAME}2.png']
 
 
 def find_edges(image, sigma=0.5):
@@ -44,17 +45,17 @@ def find_harris_interest_points(image, threshold=0.1, sigma=1, suppression_size=
     :param sigma: Sigma for edge detection filter (Default 1)
     :param suppression_size: number of pixels in the x and y direction (+/-)
                                 to non-max suppress around each interest point (Default 10)
-    :return: np.array of interest points ([[x1, y1], [x2, y2], ...])
+    :return: np.array of interest points ([[r1, c1], [r2, c2], ...])
     """
     Ix, Iy = find_edges(image, sigma=sigma)                 # Edges
     A, B, C = structure_tensor_values(Ix, Iy, sigma=(2.5*sigma))
     R = ((A * C) - (B**2)) / (A + C)                        # Harris response
     R_th = R > (R.max() * threshold)                        # Thresholded Harris response
-    interest_points = np.array(R_th.nonzero()).T            # Co-ordinates of interest points
+    interest_points = np.array(R_th.nonzero()).T            # Co-ordinates of interest points (r, c)
     values = [R[c[0], c[1]] for c in interest_points]       # Values of response at interest points
     value_order = np.argsort(values)
     allowed_loc = np.zeros(image.shape, dtype='bool')
-    allowed_loc[suppression_size:-suppression_size, suppression_size:-suppression_size] = True
+    allowed_loc[suppression_size:-suppression_size, suppression_size:-suppression_size] = True  # Not allowed near edge
     best_points = []
     for r, c in interest_points[value_order[::-1]]:
         if allowed_loc[r, c]:
@@ -67,22 +68,24 @@ def make_image_patch_descriptors(image, hips, patch_size=11):
     """
     Create a matrix of flattened patches taken from around the Harris interest points
     :param image: Image to take patches of
-    :param hips: Harris interest points of the image
+    :param hips: Harris interest points of the image (r, c)
     :param patch_size: Size of the patches (Default 11)
     :return: np.array of patch descriptors
     """
     patch_descriptors = []
     delta = (patch_size - 1) // 2
     for r, c in hips:
-        patch = image[r-delta : r+delta+1, c-delta : c+delta+1].flatten()
-        patch_descriptors.append(patch / np.linalg.norm(patch))
+        patch = np.ravel(image[r-delta : r+delta+1, c-delta : c+delta+1])   # 1d view of patch
+        patch_descriptors.append(patch / np.linalg.norm(patch))             # normalise each patch
     return np.array(patch_descriptors)
 
 
-def calculate_image_translations(image1, image2, hips1, hips2, threshold=0.95):
+def calculate_image_translations(image1, hips1, image2, hips2, threshold=0.95):
     """
     Calculate the translation vectors based on Harris interest points of the two images
+    :param image1: np.array grayscale image 1
     :param hips1: Harris interest points of image 1
+    :param image2: np.array grayscale image 2
     :param hips2: Harris interest points of image 2
     :param threshold: Threshold for response to be considered a good match (Default 0.95)
     :return: translation vector of image 2 relative to image 1
@@ -91,8 +94,8 @@ def calculate_image_translations(image1, image2, hips1, hips2, threshold=0.95):
     M2 = make_image_patch_descriptors(image2, hips2)
     response_matrix = np.dot(M1, M2.T)
     response_matrix = response_matrix > threshold
-    match_coords = np.array(response_matrix.nonzero()).T
-    return np.array([hips1[r] - hips2[c] for r, c in match_coords])
+    match_coords = np.array(response_matrix.nonzero())
+    return hips1[match_coords[0, :]] - hips2[match_coords[1, :]]
 
 
 def exhaustive_ransac(translations, max_delta=1.6):
@@ -104,7 +107,7 @@ def exhaustive_ransac(translations, max_delta=1.6):
     """
     votes = np.zeros((len(translations)))
     for i, t in enumerate(translations):
-        deltas = np.linalg.norm(translations - t)
+        deltas = np.linalg.norm((translations - t), axis=1)
         votes[i] = (deltas < max_delta).sum()
     return translations[votes.argmax()]
 
@@ -121,20 +124,19 @@ def stitch_images(im1: Image, im2: Image, show_intermediate=False):
     hips1 = find_harris_interest_points(im1_gray)
     hips2 = find_harris_interest_points(im2_gray)
     possible_translations = calculate_image_translations(im1_gray, im2_gray, hips1, hips2)
-    delta_c, delta_r = exhaustive_ransac(possible_translations)
-    print(delta_r, delta_c)
-    combined_images = Image.new(im1.mode, (im1_gray.shape[0] + abs(delta_r), im1_gray.shape[1] + abs(delta_c)))
-    if delta_r > 0 and delta_c > 0:
+    delta_y, delta_x = exhaustive_ransac(possible_translations)
+    combined_images = Image.new(im1.mode, (im1_gray.shape[0] + abs(delta_x), im1_gray.shape[1] + abs(delta_y)))
+    if delta_y > 0 and delta_x > 0:
         combined_images.paste(im1, (0, 0))
-        combined_images.paste(im2, (delta_r, delta_c))
-    elif delta_r < 0 < delta_c:
-        combined_images.paste(im1, (delta_r, 0))
-        combined_images.paste(im2, (0, delta_c))
-    elif delta_r > 0 > delta_c:
-        combined_images.paste(im1, (0, delta_c))
-        combined_images.paste(im2, (delta_r, 0))
+        combined_images.paste(im2, (delta_x, delta_y))
+    elif delta_x < 0 < delta_y:
+        combined_images.paste(im1, (-delta_x, 0))
+        combined_images.paste(im2, (0, delta_y))
+    elif delta_x > 0 > delta_y:
+        combined_images.paste(im1, (0, -delta_y))
+        combined_images.paste(im2, (delta_x, 0))
     else:
-        combined_images.paste(im1, (delta_r, delta_c))
+        combined_images.paste(im1, (-delta_x, -delta_y))
         combined_images.paste(im2, (0, 0))
     return combined_images
 
@@ -146,5 +148,5 @@ if __name__ == "__main__":
         im = Image.open(im_path)
         images.append(im)
     final_image = stitch_images(*images)
-    final_image.show()
+    plt.imshow(final_image)
     plt.show()

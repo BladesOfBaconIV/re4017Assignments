@@ -3,6 +3,7 @@ inverse_sinogram/.idea/*
 *.xml
 
 ## Core latex/pdflatex auxiliary files:
+*.tex
 *.aux
 *.lof
 *.log
@@ -17,4 +18,4 @@ inverse_sinogram/.idea/*
 .*.lb
 *.synctex.gz
 
-*.png
+*/report/images/*.png
