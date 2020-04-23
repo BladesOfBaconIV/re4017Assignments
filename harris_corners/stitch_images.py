@@ -7,7 +7,37 @@ from os.path import exists
 IMAGE_NAME = "balloon"
 IMAGES = [f'./images/{IMAGE_NAME}1.png', f'./images/{IMAGE_NAME}2.png']
 
+SHOW_INTERMEDIATE = True        # Show intermediate steps
 
+
+def plot_return(title='', background_image=False, as_points=False, **plot_args):
+    """
+    Decorator function to allow easy plotting of intermediate results
+    :param title: Title for the plot
+    :param background_image: Whether to use a background image, if True will use the first arg of func as the background
+    :param as_points: Whether to plot the result of func as (x, y) points, assumes they are (r, c)
+    :param plot_args: extra kwargs to pass to plt.imshow or plt.scatter (Depending on as_points)
+    :return: decorator function
+    """
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            result = func(*args, **kwargs)
+            if SHOW_INTERMEDIATE:
+                for r in result if type(result) == tuple else [result]:
+                    plt.figure()
+                    if background_image:
+                        plt.imshow(*args, cmap='gray')
+                    if as_points:
+                        plt.scatter(*zip(*[(x, y) for y, x in result]), **plot_args)
+                    else:
+                        plt.imshow(r, **plot_args)
+                    plt.title(title)
+            return result
+        return wrapper
+    return decorator
+
+
+@plot_return(title='Edge detection', cmap='gray')
 def find_edges(image, sigma=0.5):
     """
     Find the x, y (column, row) edges of an image using gaussian derivative kernel
@@ -37,6 +67,20 @@ def structure_tensor_values(Ix, Iy, sigma):
     )
 
 
+@plot_return(title='Harris Response', cmap='hot')
+def harris_response(image, sigma=1):
+    """
+    Get the Harris response of an image
+    :param image: greyscale image
+    :param sigma: sigma for edge detection
+    :return: Harris response
+    """
+    Ix, Iy = find_edges(image, sigma=sigma)  # Edges in x and y direction
+    A, B, C = structure_tensor_values(Ix, Iy, sigma=2.5*sigma)
+    return ((A * C) - (B ** 2)) / (A + C)  # Harris response
+
+
+@plot_return(title='Harris Interest Points', background_image=True, as_points=True, s=6)
 def find_harris_interest_points(image, threshold=0.1, sigma=1, suppression_size=10):
     """
     Find the Harris interest points of an image, thresholded using Szeliski harmonic mean
@@ -47,9 +91,7 @@ def find_harris_interest_points(image, threshold=0.1, sigma=1, suppression_size=
                                 to non-max suppress around each interest point (Default 10)
     :return: np.array of interest points ([[r1, c1], [r2, c2], ...])
     """
-    Ix, Iy = find_edges(image, sigma=sigma)                 # Edges
-    A, B, C = structure_tensor_values(Ix, Iy, sigma=(2.5*sigma))
-    R = ((A * C) - (B**2)) / (A + C)                        # Harris response
+    R = harris_response(image, sigma=sigma)
     R_th = R > (R.max() * threshold)                        # Thresholded Harris response
     interest_points = np.array(R_th.nonzero()).T            # Co-ordinates of interest points (r, c)
     values = [R[c[0], c[1]] for c in interest_points]       # Values of response at interest points
@@ -64,6 +106,7 @@ def find_harris_interest_points(image, threshold=0.1, sigma=1, suppression_size=
     return np.array(best_points)
 
 
+@plot_return(title='Patch Descriptors')
 def make_image_patch_descriptors(image, hips, patch_size=11):
     """
     Create a matrix of flattened patches taken from around the Harris interest points
@@ -123,8 +166,8 @@ def stitch_images(im1: Image, im2: Image, show_intermediate=False):
     im1_gray, im2_gray = np.array(im1.convert('L')), np.array(im2.convert('L'))
     hips1 = find_harris_interest_points(im1_gray)
     hips2 = find_harris_interest_points(im2_gray)
-    possible_translations = calculate_image_translations(im1_gray, im2_gray, hips1, hips2)
-    delta_y, delta_x = exhaustive_ransac(possible_translations)
+    possible_translations = calculate_image_translations(im1_gray, hips1, im2_gray, hips2)
+    delta_y, delta_x = exhaustive_ransac(possible_translations)  # Returns (row, column) change to (x, y)
     combined_images = Image.new(im1.mode, (im1_gray.shape[0] + abs(delta_x), im1_gray.shape[1] + abs(delta_y)))
     if delta_y > 0 and delta_x > 0:
         combined_images.paste(im1, (0, 0))
@@ -148,5 +191,6 @@ if __name__ == "__main__":
         im = Image.open(im_path)
         images.append(im)
     final_image = stitch_images(*images)
+    plt.figure()
     plt.imshow(final_image)
     plt.show()
