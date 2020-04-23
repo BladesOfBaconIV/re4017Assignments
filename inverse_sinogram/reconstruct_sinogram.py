@@ -1,4 +1,8 @@
 # Assignment 1: Reconstruct image from sinogram
+# Authors:
+#   Darragh Glavin:     16189183
+#   Lorcan Williamson:  16160703
+#   Yilin Mou:          18111602
 # Python 3.7
 
 import scipy.fftpack as fft
@@ -12,7 +16,7 @@ from itertools import repeat
 IMG_FILE = "./sinogram.png"     # image file to open
 ASPECT_RATIO = 4/3              # aspect ratio of image (width:height)
 USE_MULTI_THREADING = True      # Whether to use multi-threading to process channels simultaneously
-SAVE_INTERMEDIATE = True        # Whether to save intermediate images during processing (helpful for writing report)
+SAVE_INTERMEDIATE = False       # Whether to save intermediate images during processing (helpful for writing report)
 
 
 def apply_fft(sinogram):
