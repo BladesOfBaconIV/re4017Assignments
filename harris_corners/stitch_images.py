@@ -1,28 +1,36 @@
+# Assignment 2: Stitching images together
+# Authors:
+#   Darragh Glavin:     16189183
+#   Lorcan Williamson:  16160703
+#   Yilin Mou:          18111602
+# Python 3.7
+
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.ndimage.filters import gaussian_filter
 from PIL import Image
-from os.path import exists
 
-IMAGE_NAME = "balloon"
+IMAGE_NAME = "arch"
 IMAGES = [f'./images/{IMAGE_NAME}1.png', f'./images/{IMAGE_NAME}2.png']
 
-SHOW_INTERMEDIATE = True        # Show intermediate steps
+SHOW_INTERMEDIATE = False        # Show intermediate steps
 
 
-def plot_return(title='', background_image=False, as_points=False, **plot_args):
+def plot_return(flag, title='', background_image=False, as_points=False, transpose=False, **plot_args):
     """
     Decorator function to allow easy plotting of intermediate results
+    :param flag: flag variable to use (If flag == True plot)
     :param title: Title for the plot
     :param background_image: Whether to use a background image, if True will use the first arg of func as the background
     :param as_points: Whether to plot the result of func as (x, y) points, assumes they are (r, c)
+    :param transpose: Transpose the image before plotting
     :param plot_args: extra kwargs to pass to plt.imshow or plt.scatter (Depending on as_points)
     :return: decorator function
     """
     def decorator(func):
         def wrapper(*args, **kwargs):
             result = func(*args, **kwargs)
-            if SHOW_INTERMEDIATE:
+            if flag:
                 for r in result if type(result) == tuple else [result]:
                     plt.figure()
                     if background_image:
@@ -30,14 +38,14 @@ def plot_return(title='', background_image=False, as_points=False, **plot_args):
                     if as_points:
                         plt.scatter(*zip(*[(x, y) for y, x in result]), **plot_args)
                     else:
-                        plt.imshow(r, **plot_args)
+                        plt.imshow(r if not transpose else r.T, **plot_args)
                     plt.title(title)
             return result
         return wrapper
     return decorator
 
 
-@plot_return(title='Edge detection', cmap='gray')
+@plot_return(SHOW_INTERMEDIATE, title='Edge detection', cmap='gray')
 def find_edges(image, sigma=0.5):
     """
     Find the x, y (column, row) edges of an image using gaussian derivative kernel
@@ -67,7 +75,7 @@ def structure_tensor_values(Ix, Iy, sigma):
     )
 
 
-@plot_return(title='Harris Response', cmap='hot')
+@plot_return(SHOW_INTERMEDIATE, title='Harris Response', cmap='hot')
 def harris_response(image, sigma=1):
     """
     Get the Harris response of an image
@@ -80,7 +88,7 @@ def harris_response(image, sigma=1):
     return ((A * C) - (B ** 2)) / (A + C)  # Harris response
 
 
-@plot_return(title='Harris Interest Points', background_image=True, as_points=True, s=6)
+@plot_return(SHOW_INTERMEDIATE, title='Harris Interest Points', background_image=True, as_points=True, s=6, c='r')
 def find_harris_interest_points(image, threshold=0.1, sigma=1, suppression_size=10):
     """
     Find the Harris interest points of an image, thresholded using Szeliski harmonic mean
@@ -106,7 +114,7 @@ def find_harris_interest_points(image, threshold=0.1, sigma=1, suppression_size=
     return np.array(best_points)
 
 
-@plot_return(title='Patch Descriptors')
+@plot_return(SHOW_INTERMEDIATE, title='Patch Descriptors', transpose=True, cmap='copper')
 def make_image_patch_descriptors(image, hips, patch_size=11):
     """
     Create a matrix of flattened patches taken from around the Harris interest points
@@ -155,18 +163,19 @@ def exhaustive_ransac(translations, max_delta=1.6):
     return translations[votes.argmax()]
 
 
-def stitch_images(im1: Image, im2: Image, show_intermediate=False):
+def stitch_images(im1: Image, im2: Image):
     """
     Stitch two RGB images together using Harris interest points
     :param im1: Image 1
     :param im2: Image 2
-    :param show_intermediate: display intermediate steps or not (Default False)
     :return: Image 1 stitched with image 2
     """
     im1_gray, im2_gray = np.array(im1.convert('L')), np.array(im2.convert('L'))
     hips1 = find_harris_interest_points(im1_gray)
     hips2 = find_harris_interest_points(im2_gray)
+    assert len(hips1) and len(hips2), "No Harris interest points found"
     possible_translations = calculate_image_translations(im1_gray, hips1, im2_gray, hips2)
+    assert len(possible_translations), "No matches found for Harris interest points"
     delta_y, delta_x = exhaustive_ransac(possible_translations)  # Returns (row, column) change to (x, y)
     combined_images = Image.new(im1.mode, (im1_gray.shape[0] + abs(delta_x), im1_gray.shape[1] + abs(delta_y)))
     if delta_y > 0 and delta_x > 0:
@@ -184,13 +193,42 @@ def stitch_images(im1: Image, im2: Image, show_intermediate=False):
     return combined_images
 
 
+def test_rotation_affect(im1: Image, im2: Image, delta=10, step=2):
+    """
+    Tests the affect small rotations of one image has on the ability to align images
+    :param im1: First to be aligned
+    :param im2: Second to be aligned (This is the image that will be rotated)
+    :param delta: Range of angles to test over [1, ..., delta]
+    :param step: Steps between test angles
+    """
+    for theta in range(1, delta, step):
+        im2_rotated = im2.rotate(theta)
+        combined = stitch_images(im1, im2_rotated)
+        plt.figure()
+        plt.imshow(combined)
+        plt.title(f'Image 2 rotated {theta} degrees')
+
+
+def test_scaling_affect(im1: Image, im2: Image, factor=2, step=0.2):
+    """
+    Test the effect scaling  of the images has on the ability to align them
+    :param im1: First to be aligned
+    :param im2: Second to be aligned (This is the image that will be scaled)
+    :param factor: Image will be scaled between [1/factor, ..., factor]
+    :param step: Step for scaling factor to change by between the min and max
+    """
+    for f in np.arange(1/factor, factor, step):
+        im2_scaled = im2.resize((int(im2.width * f), int(im2.height * f)))
+        combined = stitch_images(im1, im2_scaled)
+        plt.figure()
+        plt.imshow(combined)
+        plt.title(f'Image 2 scaled {100*f:d}%')
+
+
 if __name__ == "__main__":
-    images = []
-    for im_path in IMAGES:
-        assert exists(im_path), f"Image {im_path} does not exist!"
-        im = Image.open(im_path)
-        images.append(im)
-    final_image = stitch_images(*images)
-    plt.figure()
-    plt.imshow(final_image)
-    plt.show()
+    images = [Image.open(path) for path in IMAGES]
+    test_rotation_affect(*images, step=1)
+    # final_image = stitch_images(*images)
+    # plt.figure()
+    # plt.imshow(final_image)
+    # plt.show()
