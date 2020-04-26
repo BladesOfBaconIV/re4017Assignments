@@ -193,41 +193,50 @@ def stitch_images(im1: Image, im2: Image):
     return combined_images
 
 
-def test_rotation_affect(im1: Image, im2: Image, delta=10, step=2):
+def test_rotation_affect(im1: Image, im2: Image, start=1, stop=10, step=2):
     """
     Tests the affect small rotations of one image has on the ability to align images
     :param im1: First to be aligned
     :param im2: Second to be aligned (This is the image that will be rotated)
-    :param delta: Range of angles to test over [1, ..., delta]
+    :param start: Angle to start testing at (int)
+    :param stop: Angle to stop testing at (inclusive) (int)
     :param step: Steps between test angles
     """
-    for theta in range(1, delta, step):
-        im2_rotated = im2.rotate(theta)
-        combined = stitch_images(im1, im2_rotated)
-        plt.figure()
-        plt.imshow(combined)
-        plt.title(f'Image 2 rotated {theta} degrees')
+    for theta in range(start, stop+1, step):
+        try:
+            im2_rotated = im2.rotate(theta)
+            combined = stitch_images(im1, im2_rotated)
+            plt.figure()
+            plt.imshow(combined)
+            plt.title(f'Image 2 rotated {theta} degrees')
+        except AssertionError as e:
+            print(f"Failed for rotation {theta} degrees: {e}")
 
 
-def test_scaling_affect(im1: Image, im2: Image, factor=2, step=0.2):
+def test_scaling_affect(im1: Image, im2: Image, factor=2, num_steps=10):
     """
     Test the effect scaling  of the images has on the ability to align them
     :param im1: First to be aligned
     :param im2: Second to be aligned (This is the image that will be scaled)
     :param factor: Image will be scaled between [1/factor, ..., factor]
-    :param step: Step for scaling factor to change by between the min and max
+    :param num_steps: Number of steps between min and max scaling factor
     """
-    for f in np.arange(1/factor, factor, step):
-        im2_scaled = im2.resize((int(im2.width * f), int(im2.height * f)))
-        combined = stitch_images(im1, im2_scaled)
-        plt.figure()
-        plt.imshow(combined)
-        plt.title(f'Image 2 scaled {100*f:d}%')
+    step = (factor - 1/factor)/num_steps
+    for f in np.arange(1/factor, factor+step, step):
+        try:
+            im2_scaled = im2.resize((int(im2.width * f), int(im2.height * f)))
+            combined = stitch_images(im1, im2_scaled)
+            plt.figure()
+            plt.imshow(combined)
+            plt.title(f'Image 2 scaled {100*f:.0f}%')
+        except AssertionError as e:
+            print(f"Failed for scale {100*f:.0f}%: {e}")
 
 
 if __name__ == "__main__":
     images = [Image.open(path) for path in IMAGES]
-    test_rotation_affect(*images, step=1)
+    # test_rotation_affect(*images, step=1)
+    test_scaling_affect(*images)
     # final_image = stitch_images(*images)
     # plt.figure()
     # plt.imshow(final_image)
