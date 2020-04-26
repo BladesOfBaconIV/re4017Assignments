@@ -12,6 +12,7 @@ from PIL import Image
 
 IMAGE_NAME = "arch"
 IMAGES = [f'./images/{IMAGE_NAME}1.png', f'./images/{IMAGE_NAME}2.png']
+EPSILON = 1e-10                 # Epsilon value used to avoid division by 0
 
 SHOW_INTERMEDIATE = False        # Show intermediate steps
 
@@ -85,7 +86,7 @@ def harris_response(image, sigma=1):
     """
     Ix, Iy = find_edges(image, sigma=sigma)  # Edges in x and y direction
     A, B, C = structure_tensor_values(Ix, Iy, sigma=2.5*sigma)
-    return ((A * C) - (B ** 2)) / (A + C)  # Harris response
+    return ((A * C) - (B ** 2)) / (A + C + EPSILON)  # Harris response
 
 
 @plot_return(SHOW_INTERMEDIATE, title='Harris Interest Points', background_image=True, as_points=True, s=6, c='r')
@@ -173,27 +174,22 @@ def stitch_images(im1: Image, im2: Image):
     im1_gray, im2_gray = np.array(im1.convert('L')), np.array(im2.convert('L'))
     hips1 = find_harris_interest_points(im1_gray)
     hips2 = find_harris_interest_points(im2_gray)
-    assert len(hips1) and len(hips2), "No Harris interest points found"
     possible_translations = calculate_image_translations(im1_gray, hips1, im2_gray, hips2)
     assert len(possible_translations), "No matches found for Harris interest points"
-    delta_y, delta_x = exhaustive_ransac(possible_translations)  # Returns (row, column) change to (x, y)
-    combined_images = Image.new(im1.mode, (im1_gray.shape[0] + abs(delta_x), im1_gray.shape[1] + abs(delta_y)))
-    if delta_y > 0 and delta_x > 0:
-        combined_images.paste(im1, (0, 0))
-        combined_images.paste(im2, (delta_x, delta_y))
-    elif delta_x < 0 < delta_y:
-        combined_images.paste(im1, (-delta_x, 0))
-        combined_images.paste(im2, (0, delta_y))
-    elif delta_x > 0 > delta_y:
-        combined_images.paste(im1, (0, -delta_y))
-        combined_images.paste(im2, (delta_x, 0))
-    else:
-        combined_images.paste(im1, (-delta_x, -delta_y))
-        combined_images.paste(im2, (0, 0))
+    dy, dx = exhaustive_ransac(possible_translations)  # Returns (row, column), need to change to (x, y)
+    size, im1_offset, im2_offset = {
+        (True, True):   ((im2.size[0]+dx, im2.size[1]+dy), (0, 0), (dx, dy)),         # +dx, +dy
+        (True, False):  ((im2.size[0]+dx, im1.size[1]-dy), (0, -dy), (dx, 0)),        # +dx, -dy
+        (False, True):  ((im1.size[0]-dx, im2.size[1]+dy), (-dx, 0), (0, dy)),        # -dx, +dy
+        (False, False): ((im1.size[0]-dx, im1.size[1]-dy), (-dx, -dy), (0, 0))        # -dx, -dy
+    }[(dx > 0, dy > 0)]
+    combined_images = Image.new(im1.mode, size)
+    combined_images.paste(im1, im1_offset)
+    combined_images.paste(im2, im2_offset)
     return combined_images
 
 
-def test_rotation_affect(im1: Image, im2: Image, start=1, stop=10, step=2):
+def test_rotation_effect(im1: Image, im2: Image, start=1, stop=10, step=2):
     """
     Tests the affect small rotations of one image has on the ability to align images
     :param im1: First to be aligned
@@ -235,9 +231,9 @@ def test_scaling_affect(im1: Image, im2: Image, factor=2, num_steps=10):
 
 if __name__ == "__main__":
     images = [Image.open(path) for path in IMAGES]
-    # test_rotation_affect(*images, step=1)
-    test_scaling_affect(*images)
-    # final_image = stitch_images(*images)
-    # plt.figure()
-    # plt.imshow(final_image)
-    # plt.show()
+    # test_rotation_effect(*images, step=1)
+    # test_scaling_affect(*images)
+    final_image = stitch_images(*images)
+    plt.figure()
+    plt.imshow(final_image)
+    plt.show()
