@@ -178,10 +178,10 @@ def stitch_images(im1: Image, im2: Image):
     assert len(possible_translations), "No matches found for Harris interest points"
     dy, dx = exhaustive_ransac(possible_translations)  # Returns (row, column), need to change to (x, y)
     size, im1_offset, im2_offset = {
-        (True, True):   ((im2.size[0]+dx, im2.size[1]+dy), (0, 0), (dx, dy)),         # +dx, +dy
-        (True, False):  ((im2.size[0]+dx, im1.size[1]-dy), (0, -dy), (dx, 0)),        # +dx, -dy
-        (False, True):  ((im1.size[0]-dx, im2.size[1]+dy), (-dx, 0), (0, dy)),        # -dx, +dy
-        (False, False): ((im1.size[0]-dx, im1.size[1]-dy), (-dx, -dy), (0, 0))        # -dx, -dy
+        (True, True):   ((max(im2.size[0]+dx, im1.size[0]), max(im2.size[1]+dy, im1.size[1])), (0, 0), (dx, dy)),    # +dx, +dy
+        (True, False):  ((max(im2.size[0]+dx, im1.size[0]), max(im1.size[1]-dy, im2.size[1])), (0, -dy), (dx, 0)),   # +dx, -dy
+        (False, True):  ((max(im1.size[0]-dx, im2.size[0]), max(im2.size[1]+dy, im1.size[1])), (-dx, 0), (0, dy)),   # -dx, +dy
+        (False, False): ((max(im1.size[0]-dx, im2.size[0]), max(im1.size[1]-dy, im2.size[1])), (-dx, -dy), (0, 0))   # -dx, -dy
     }[(dx > 0, dy > 0)]
     combined_images = Image.new(im1.mode, size)
     combined_images.paste(im1, im1_offset)
@@ -225,14 +225,13 @@ def test_scaling_affect(im1: Image, im2: Image, factor=2, num_steps=10):
             plt.figure()
             plt.imshow(combined)
             plt.title(f'Image 2 scaled {100*f:.0f}%')
+            plt.savefig(f'./report/images/{IMAGE_NAME}-scaled-{100*f:.0f}.png')
         except AssertionError as e:
             print(f"Failed for scale {100*f:.0f}%: {e}")
 
 
 if __name__ == "__main__":
     images = [Image.open(path) for path in IMAGES]
-    # test_rotation_effect(*images, step=1)
-    # test_scaling_affect(*images)
     final_image = stitch_images(*images)
     plt.figure()
     plt.imshow(final_image)
